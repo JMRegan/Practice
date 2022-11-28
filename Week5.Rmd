@@ -1,0 +1,310 @@
+|                       |
+|-----------------------|
+| title: "Week 5 Summary Exercises"   |
+| output: html_notebook |
+
+5.2.4 Exercises Find all flights that
+
+Had an arrival delay of two or more hours
+
+```{r}
+library(tidyverse)
+library(nycflights13)
+filter(flights, arr_delay >= 120)
+
+```
+
+Flew to Houston (IAH or HOU)
+
+```{r}
+filter(flights, dest %in% c("IAH", "HOU"))
+
+```
+
+Were operated by United, American, or Delta
+
+```{r}
+
+filter(flights, carrier %in% c("UA", "AA", "DL"))
+
+```
+
+Departed in summer (July, August, and September)
+
+```{r}
+filter(flights, month %in% c(7, 8, 9))
+
+##or
+
+filter(flights, month >= 7, month <= 9)
+
+##or
+
+filter(flights, month %in% 7:9)
+
+```
+
+Arrived more than two hours late, but didn't leave late
+
+```{r}
+
+filter(flights, arr_delay >120, dep_delay <= 0)
+
+```
+
+Were delayed by at least an hour, but made up over 30 minutes in flight
+
+```{r}
+
+filter(flights, dep_delay >=60, dep_delay - arr_delay >30)
+
+```
+
+Departed between midnight and 6am (inclusive)
+
+```{r}
+
+filter(flights, dep_time <= 600| dep_time == 2400 )
+
+```
+
+Another useful dplyr filtering helper is between(). What does it do? Can you use it to simplify the code needed to answer the previous challenges?
+
+
+```{r}
+## a shortcut for x >= left & x <= right,
+## yes, one example is
+filter(flights, between(month, 7, 9))
+
+##can't do Departed between midnight and 6am (inclusive) as inclusive
+
+```
+
+How many flights have a missing dep_time? What other variables are missing? What might these rows represent?
+```{r}
+filter(flights, is.na(dep_time))
+##cancelled flights
+
+```
+
+Exercise 5.2.4:
+Why is NA \^ 0 not missing? Why is NA \| TRUE not missing? Why is FALSE & NA not missing? Can you figure out the general rule? (NA \* 0 is a tricky counterexample!)
+```{r}
+NA^0
+
+##all values raised to 0 are 1
+
+NA|TRUE
+
+##or TRUE is always TRUE
+
+NA & TRUE
+
+##unknown value
+
+NA * 0
+
+##unknown value
+
+```
+
+
+5.3.1 Exercises 
+
+How could you use arrange() to sort all missing values to the start? (Hint: use is.na()).
+```{r}
+arrange(flights, desc(is.na(dep_time)), dep_time)
+```
+
+Sort flights to find the most delayed flights. Find the flights that left earliest.
+```{r}
+arrange(flights, desc(dep_delay))
+
+arrange(flights, dep_delay)
+
+```
+
+Sort flights to find the fastest (highest speed) flights.
+
+```{r}
+
+mutate(flights, distance/air_time) %>%
+  arrange(desc(distance/air_time))
+
+```
+
+
+Which flights travelled the farthest? Which travelled the shortest?
+```{r}
+
+arrange(flights, desc(distance))
+arrange(flights, distance)
+
+```
+
+
+5.7.1 Exercises 
+Refer back to the lists of useful mutate and filtering functions. Describe how each operation changes when you combine it with grouping.
+```{r}
+##group_by does not affect arithmetic functions
+##Group_by affects summary functions including: (mean()), offset functions (lead(), lag()), ranking functions (min_rank(), row_number()), operate within each group when used with group_by() in mutate() or filter()
+```
+
+
+Which plane (tailnum) has the worst on-time record?
+```{r}
+flights %>%
+  filter(!is.na(tailnum)) %>%
+  mutate(on_time = !is.na(arr_time) & (arr_delay <= 0)) %>%
+  group_by(tailnum) %>%
+  summarise(on_time = mean(on_time), n = n()) %>%
+  filter(min_rank(on_time) == 1) %>%
+  arrange(desc(n))
+```
+
+
+What time of day should you fly if you want to avoid delays as much as possible?
+```{r}
+
+flights %>%
+  group_by(hour) %>%
+  summarise(arr_delay = mean(arr_delay, na.rm = TRUE)) %>%
+  arrange(arr_delay)
+
+```
+
+
+For each destination, compute the total minutes of delay. For each flight, compute the proportion of the total delay for its destination.
+```{r}
+flights %>%
+   filter(arr_delay > 0) %>%
+   group_by(dest) %>%
+ mutate(
+    arr_delay_total = sum(arr_delay),
+    arr_delay_prop = arr_delay / arr_delay_total
+  ) %>%
+  select(dest, month, day, dep_time, carrier, flight,
+         arr_delay, arr_delay_prop) %>%
+  arrange(dest, desc(arr_delay_prop))
+```
+
+
+Delays are typically temporally correlated: even once the problem that caused the initial delay has been resolved, later flights are delayed to allow earlier flights to leave. Using lag(), explore how the delay of a flight is related to the delay of the immediately preceding flight.
+
+```{r}
+lagged_delays <- flights %>%
+  arrange(origin, month, day, dep_time) %>%
+  group_by(origin) %>%
+  mutate(dep_delay_lag = lag(dep_delay)) %>%
+  filter(!is.na(dep_delay), !is.na(dep_delay_lag))
+
+lagged_delays %>%
+  group_by(dep_delay_lag) %>%
+  summarise(dep_delay_mean = mean(dep_delay)) %>%
+  ggplot(aes(y = dep_delay_mean, x = dep_delay_lag)) +
+  geom_point() +
+  scale_x_continuous(breaks = seq(0, 1500, by = 120)) +
+  labs(y = "Departure Delay", x = "Previous Departure Delay")
+
+```
+
+
+Look at each destination. Can you find flights that are suspiciously fast? (i.e. flights that represent a potential data entry error). Compute the air time of a flight relative to the shortest flight to that destination. Which flights were most delayed in the air?
+```{r}
+flights %>%
+  group_by(dest)%>%
+  mutate(speed = distance/air_time) %>%
+  select(dest, speed) %>%
+  arrange(desc(speed))
+
+```
+
+
+Find all destinations that are flown by at least two carriers. Use that information to rank the carriers.
+```{r}
+flights %>%
+  group_by(dest) %>%
+  mutate(d_carrier = n_distinct(carrier)) %>%
+  filter(d_carrier >1) %>%
+  group_by(carrier) %>%
+   summarize(n_dest = n_distinct(dest)) %>%
+   arrange(desc(n_dest))
+
+```
+
+
+For each plane, count the number of flights before the first delay of greater than 1 hour.
+```{r}
+
+flights %>%
+  select(tailnum, year, month,day, dep_delay) %>%
+  filter(!is.na(dep_delay)) %>%
+  arrange(tailnum, year, month, day) %>%
+  group_by(tailnum) %>%
+  mutate(cumulative_hr_delays = cumsum(dep_delay > 60)) %>%
+  summarise(total_flights = sum(cumulative_hr_delays < 1)) %>%
+  arrange(desc(total_flights))
+  
+```
+
+
+5.6.7 Exercises 
+
+Come up with another approach that will give you the same output as not_cancelled %\>% count(dest) and not_cancelled %\>% count(tailnum, wt = distance) (without using count()).
+```{r}
+##original version
+not_cancelled <- flights %>%
+  filter(!is.na(dep_delay), !is.na(arr_delay))
+not_cancelled %>% 
+  count(dest) 
+not_cancelled %>%
+  count(tailnum, wt = distance) 
+
+##new version
+not_cancelled %>%
+ group_by(dest) %>%
+  summarise(n = n())
+
+not_cancelled %>%
+ group_by(tailnum) %>%
+  summarise(n = sum(distance))
+```
+
+
+Our definition of cancelled flights (is.na(dep_delay) \| is.na(arr_delay) ) is slightly suboptimal. Why? Which is the most important column?
+```{r}
+
+##most important is dep for departure
+
+
+```
+
+
+Look at the number of cancelled flights per day. Is there a pattern? Is the proportion of cancelled flights related to the average delay?
+```{r}
+
+canceled_per_day <-flights %>%
+  mutate(canceled = (is.na(arr_delay) | is.na(dep_delay))) %>%
+  group_by(year, month, day) %>%
+  summarise(
+    canceled_num = sum(canceled),
+    flights_num = n(), .groups = "keep"
+  )
+print (canceled_per_day)
+```
+
+
+Which carrier has the worst delays? 
+```{r}
+
+flights %>%
+  group_by(carrier) %>%
+  summarise(arr_delay = mean(arr_delay, na.rm = TRUE)) %>%
+  arrange(desc(arr_delay))
+
+```
+```{r}
+getwd()
+
+```
+
